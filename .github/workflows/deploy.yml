@@ -10,10 +10,6 @@ concurrency:
   group: deploy-action
   cancel-in-progress: false
 
-defaults:
-  run:
-    working-directory: src/fortly-github-action
-
 jobs:
   test:
     name: Test
