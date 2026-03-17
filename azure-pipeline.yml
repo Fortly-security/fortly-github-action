@@ -1,0 +1,62 @@
+variables:
+  nodeVersion: "20.x || 22.x"
+  npmVersion: "11.5.2"
+
+parameters:
+  - name: soVersion
+    type: string
+    default: 'ubuntu-22.04'
+  - name: enable_naming_rules
+    type: boolean
+    default: true
+  - name: test_execute
+    type: boolean
+    default: true
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+      - qa
+      - release/*
+      - feature/*
+  paths:
+    include:
+      - src/fortly-github-action/**
+    exclude:
+      - README.md
+      - .gitignore
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+      - qa
+      - release/*
+
+resources:
+  repositories:
+    - repository: devsecops-analisis-estatico-pipe-yml-naming-rules-validation
+      name: pragma-template/devsecops-analisis-estatico-pipe-yml-naming-rules-validation
+      type: git
+      ref: refs/heads/trunk
+    - repository: devsecops-analisis-estatico-pipe-yml-build-npm-node
+      name: pragma-template/devsecops-analisis-estatico-pipe-yml-build-npm-node
+      type: git
+      ref: refs/heads/trunk
+
+stages:
+  - template: pipe-yml-templates/pipeline.yml@devsecops-analisis-estatico-pipe-yml-naming-rules-validation
+    parameters:
+      soVersion: '${{ parameters.soVersion }}'
+      commit_execute: true
+      branch_execute: true
+
+  - template: pipe-yml-templates/pipeline.yml@devsecops-analisis-estatico-pipe-yml-build-npm-node
+    parameters:
+      soVersion: '${{ parameters.soVersion }}'
+      nodeVersion: '${{ variables.nodeVersion }}'
+      npmVersion: '${{ variables.npmVersion }}'
+      test_execute: '${{ parameters.test_execute }}'
