@@ -1,11 +1,13 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
 import * as core from "@actions/core";
-import { CreateScanResponse, ScanResult, WebhookPayload } from "./types";
+import { CreateScanResponse, SarifReport, ScanResult, WebhookPayload } from "./types";
 
 export class FortlyClient {
   private http: AxiosInstance;
+  private baseUrl: string;
 
   constructor(baseUrl: string, apiKey: string) {
+    this.baseUrl = baseUrl;
     this.http = axios.create({
       baseURL: baseUrl,
       timeout: 30_000,
@@ -97,6 +99,43 @@ export class FortlyClient {
         `Failed to post IaC webhook: ${this.extractMessage(error)}. Continuing without IaC results.`
       );
     }
+  }
+
+  async downloadSarif(scanId: string): Promise<SarifReport> {
+    try {
+      const response = await this.http.get<SarifReport>(
+        `/api/v2/scans/${scanId}/report?format=sarif`
+      );
+      return response.data;
+    } catch (error) {
+      throw this.wrapError("Failed to download SARIF report", error);
+    }
+  }
+
+  async batchRemediate(input: {
+    scanId: string;
+    vulnIds: string[];
+    repoUrl: string;
+    branch: string;
+    githubToken: string;
+    minSeverity?: string;
+  }): Promise<{
+    totalFixed: number;
+    totalFailed: number;
+    prUrl?: string;
+    prNumber?: number;
+    fixes: Array<{ vulnId: string; status: string; error?: string }>;
+  }> {
+    try {
+      const response = await this.http.post("/api/v2/remediate/batch", input);
+      return response.data;
+    } catch (error) {
+      throw this.wrapError("Failed to batch remediate", error);
+    }
+  }
+
+  getReportUrl(scanId: string): string {
+    return `${this.baseUrl}/scans/${scanId}`;
   }
 
   private wrapError(context: string, error: unknown): Error {

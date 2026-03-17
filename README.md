@@ -34,6 +34,7 @@ jobs:
         with:
           api-key: ${{ secrets.FT_API_KEY }}
           target-url: "https://staging.example.com"
+          upload-sarif: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -57,6 +58,7 @@ jobs:
 | `scan-iac` | Enable IaC scanning for Terraform, Docker, and Kubernetes files changed in the PR. | No | `true` |
 | `scan-mode` | Scan depth: `quick` (approximately 30 seconds, top vulnerabilities) or `full` (approximately 5 minutes, all modules). | No | `quick` |
 | `comment-on-pr` | Post scan results as a comment on the pull request. | No | `true` |
+| `upload-sarif` | Automatically upload SARIF results to the GitHub Security tab. Requires `security-events: write` permission. | No | `false` |
 | `api-url` | Fortly API base URL. Override for self-hosted instances. | No | `https://api.fortly.io` |
 
 ---
@@ -72,6 +74,7 @@ jobs:
 | `high-count` | Number of high-severity vulnerabilities. |
 | `scan-url` | Direct link to the full scan report on Fortly. |
 | `passed` | Whether the scan passed the threshold (`true` or `false`). |
+| `sarif-file` | Path to the generated SARIF file. Available when `upload-sarif` is `true` or when scan results contain findings. |
 
 ---
 
@@ -95,7 +98,33 @@ When `scan-iac` is enabled (default), Fortly analyzes infrastructure-as-code fil
 
 ### SARIF Upload
 
-Fortly generates SARIF 2.1.0 output that can be uploaded to the GitHub Security tab:
+Fortly generates SARIF 2.1.0 output and can automatically upload it to the GitHub Security tab. Set `upload-sarif: "true"` to enable integrated SARIF upload -- no additional workflow steps required:
+
+```yaml
+- uses: Fortly-security/fortly-github-action@v1
+  with:
+    api-key: ${{ secrets.FORTLY_API_KEY }}
+    target-url: "https://staging.myapp.com"
+    upload-sarif: "true"
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+When `upload-sarif` is enabled, the action uploads the SARIF file directly to the GitHub Code Scanning API. The `sarif-file` output contains the path to the generated file if you need it in subsequent steps.
+
+Your workflow must include the following permissions for SARIF upload to work:
+
+```yaml
+permissions:
+  security-events: write
+  contents: read
+  pull-requests: write
+  checks: write
+```
+
+Vulnerabilities appear in the **Security** tab of your repository alongside CodeQL and other scanning tools.
+
+**Manual upload** -- If you prefer to control the upload step yourself (for example, to conditionally upload), keep `upload-sarif` as `false` (the default) and add a separate step:
 
 ```yaml
 - uses: fortly/fortly-github-action@v1
@@ -111,10 +140,8 @@ Fortly generates SARIF 2.1.0 output that can be uploaded to the GitHub Security 
   if: always()
   uses: github/codeql-action/upload-sarif@v3
   with:
-    sarif_file: fortly-results.sarif
+    sarif_file: ${{ steps.fortly.outputs.sarif-file }}
 ```
-
-Vulnerabilities appear in the **Security** tab of your repository alongside CodeQL and other scanning tools.
 
 ### Status Checks
 
@@ -160,9 +187,10 @@ on:
     branches: [main, develop]
 
 permissions:
+  security-events: write
   contents: read
   pull-requests: write
-  security-events: write
+  checks: write
 
 jobs:
   scan:
@@ -178,14 +206,9 @@ jobs:
           scan-mode: "full"
           scan-iac: "true"
           fail-threshold: "80"
+          upload-sarif: "true"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload SARIF to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: fortly-results.sarif
 
       - name: Fail if critical vulnerabilities found
         if: steps.fortly.outputs.critical-count != '0'

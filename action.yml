@@ -7,11 +7,11 @@ branding:
 
 inputs:
   api-key:
-    description: "Fortly API key (get one at https://fortly.io/settings/api-keys)"
-    required: true
+    description: "Fortly API key (get one at https://fortly.io/settings/api-keys). Optional for basic scanning."
+    required: false
   target-url:
-    description: "URL to scan (e.g., https://staging.myapp.com)"
-    required: true
+    description: "URL to scan for DAST (e.g., https://staging.myapp.com). Required only for DAST scanning."
+    required: false
   fail-threshold:
     description: "Minimum security score to pass (0-100). PR check fails if score is below this."
     required: false
@@ -32,6 +32,30 @@ inputs:
     description: "Fortly API base URL (for self-hosted instances)"
     required: false
     default: "https://api.fortly.io"
+  upload-sarif:
+    description: "Upload SARIF results to GitHub Security tab (requires security-events: write permission)"
+    required: false
+    default: "true"
+  scan-secrets:
+    description: "Scan PR files for leaked secrets (API keys, tokens, passwords)"
+    required: false
+    default: "true"
+  auto-remediate:
+    description: "Automatically create fix PRs for vulnerabilities found (requires repo write access)"
+    required: false
+    default: "false"
+  remediate-severity:
+    description: "Minimum severity to auto-remediate (critical, high, medium)"
+    required: false
+    default: "high"
+  scan-deps:
+    description: "Scan dependencies for known vulnerabilities via OSV.dev"
+    required: false
+    default: "true"
+  scan-sast:
+    description: "Run static code analysis on PR files (JavaScript, Python, Java, Go)"
+    required: false
+    default: "true"
 
 outputs:
   score:
@@ -48,6 +72,20 @@ outputs:
     description: "URL to the full scan report"
   passed:
     description: "Whether the scan passed the threshold (true/false)"
+  sarif-file:
+    description: "Path to the generated SARIF file"
+  secrets-found:
+    description: "Number of secrets found in PR files"
+  remediation-pr:
+    description: "URL of the auto-remediation PR (if created)"
+  fixes-count:
+    description: "Number of vulnerabilities auto-fixed"
+  dependencies-total:
+    description: "Total number of dependencies found"
+  dependencies-vulnerable:
+    description: "Number of vulnerable dependencies"
+  sast-findings:
+    description: "Number of SAST findings in code"
 
 runs:
   using: "node20"
