@@ -1,0 +1,54 @@
+name: "Fortly Security Scan"
+description: "Automated DAST + IaC security scanning for web applications. Scans your app for OWASP Top 10, API security, and infrastructure misconfigurations."
+author: "Fortly"
+branding:
+  icon: "shield"
+  color: "red"
+
+inputs:
+  api-key:
+    description: "Fortly API key (get one at https://fortly.io/settings/api-keys)"
+    required: true
+  target-url:
+    description: "URL to scan (e.g., https://staging.myapp.com)"
+    required: true
+  fail-threshold:
+    description: "Minimum security score to pass (0-100). PR check fails if score is below this."
+    required: false
+    default: "60"
+  scan-iac:
+    description: "Enable IaC scanning for Terraform, Docker, K8s files changed in the PR"
+    required: false
+    default: "true"
+  scan-mode:
+    description: "Scan mode: quick (30s, top vulns) or full (5min, all modules)"
+    required: false
+    default: "quick"
+  comment-on-pr:
+    description: "Post scan results as a PR comment"
+    required: false
+    default: "true"
+  api-url:
+    description: "Fortly API base URL (for self-hosted instances)"
+    required: false
+    default: "https://api.fortly.io"
+
+outputs:
+  score:
+    description: "Security score (0-100)"
+  grade:
+    description: "Security grade (A+ to F)"
+  vulnerabilities:
+    description: "Total vulnerabilities found"
+  critical-count:
+    description: "Number of critical vulnerabilities"
+  high-count:
+    description: "Number of high vulnerabilities"
+  scan-url:
+    description: "URL to the full scan report"
+  passed:
+    description: "Whether the scan passed the threshold (true/false)"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"
