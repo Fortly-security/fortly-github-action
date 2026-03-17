@@ -1,4 +1,4 @@
-name: Build GitHub Action
+name: Build & Publish GitHub Action
 
 on:
   push:
@@ -9,6 +9,10 @@ on:
 concurrency:
   group: deploy-action
   cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: src/fortly-github-action
 
 jobs:
   test:
@@ -22,12 +26,16 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  build:
-    name: Build
+  build-and-push:
+    name: Build & Push dist
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,3 +43,60 @@ jobs:
       - run: npm run build
       - name: Verify dist
         run: test -f dist/index.js && echo "Build OK" || exit 1
+      - name: Commit and push dist
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/ --force
+          if git diff --staged --quiet; then
+            echo "No changes to dist/"
+          else
+            git commit -m "chore: build dist for $(git describe --tags --always)"
+            git push
+          fi
+
+  publish:
+    name: Publish to Marketplace
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Extract release notes
+        id: notes
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG"
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.notes.outputs.tag }}
+          name: "Fortly Security Scan ${{ steps.notes.outputs.tag }}"
+          body: |
+            ## Fortly Security Scan ${{ steps.notes.outputs.tag }}
+
+            Automated DAST + IaC security scanning for your CI/CD pipeline.
+
+            ### Usage
+            ```yaml
+            - uses: fortly/fortly-github-action@${{ steps.notes.outputs.tag }}
+              with:
+                api-key: ${{ '{{' }} secrets.FORTLY_API_KEY {{ '}}' }}
+                target-url: "https://staging.myapp.com"
+            ```
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update major version tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          MAJOR=$(echo "$TAG" | grep -oP '^v\d+')
+          git tag -f "$MAJOR" "$TAG"
+          git push origin "$MAJOR" --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
