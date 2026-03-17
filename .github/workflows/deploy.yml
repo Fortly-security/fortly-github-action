@@ -22,8 +22,8 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  build-and-push:
-    name: Build & Push dist
+  build:
+    name: Build
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ startsWith(github.ref, 'refs/tags/') && 'develop' || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -40,6 +40,7 @@ jobs:
       - name: Verify dist
         run: test -f dist/index.js && echo "Build OK" || exit 1
       - name: Commit and push dist
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -53,7 +54,7 @@ jobs:
 
   publish:
     name: Publish to Marketplace
-    needs: build-and-push
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -80,7 +81,7 @@ jobs:
 
             ### Usage
             ```yaml
-            - uses: fortly/fortly-github-action@${{ steps.notes.outputs.tag }}
+            - uses: Fortly-security/fortly-github-action@${{ steps.notes.outputs.tag }}
               with:
                 api-key: ${{ '{{' }} secrets.FORTLY_API_KEY {{ '}}' }}
                 target-url: "https://staging.myapp.com"
@@ -91,7 +92,7 @@ jobs:
       - name: Update major version tag
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          MAJOR=$(echo "$TAG" | grep -oP '^v\d+')
+          MAJOR=$(echo "$TAG" | grep -oE '^v[0-9]+')
           git tag -f "$MAJOR" "$TAG"
           git push origin "$MAJOR" --force
         env:
