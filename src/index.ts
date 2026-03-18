@@ -8,8 +8,9 @@ import { IacCollector } from "./iac-collector";
 import { SarifBuilder } from "./sarif-builder";
 import { StatusCheckManager } from "./status-check";
 import { SecretScanner, SecretFinding } from "./secret-scanner";
-import { ScaScanner, isLockfile } from "./sca-scanner";
-import { SastScanner } from "./sast-scanner";
+import { ScaScanner, isLockfile, parseLockfile } from "./sca-scanner";
+import { SastScanner, SastFinding } from "./sast-scanner";
+import { AnnotationBuilder, Annotation } from "./annotation-builder";
 import { IacFile } from "./types";
 
 async function run(): Promise<void> {
@@ -32,6 +33,11 @@ async function run(): Promise<void> {
 
     const localOnlyMode = !apiKey || !targetUrl;
     const statusCheck = new StatusCheckManager(octokit, context);
+
+    // Collect annotations from all scanners for inline PR file comments
+    let allAnnotations: Annotation[] = [];
+    let sastFindings: SastFinding[] = [];
+    let scaLockfileMap = new Map<string, string>();
 
     // 1. Create pending status check
     await statusCheck.createPending(localOnlyMode ? "Fortly local scan running..." : "Fortly is scanning...");
@@ -93,6 +99,11 @@ async function run(): Promise<void> {
           core.info("No secrets detected in PR files");
           core.setOutput("secrets-found", "0");
         }
+        // Build annotations from secret findings
+        if (secretFindings.length > 0) {
+          const secretAnnotations = AnnotationBuilder.fromSecretFindings(secretFindings);
+          allAnnotations.push(...secretAnnotations);
+        }
       } catch (secretError: any) {
         core.warning(`Secret scanning failed: ${secretError.message}. Continuing with DAST scan.`);
         core.setOutput("secrets-found", "0");
@@ -133,6 +144,16 @@ async function run(): Promise<void> {
 
           if (scaResult.findings.length > 0) {
             core.warning(`Found ${scaResult.findings.length} vulnerable dependencies`);
+
+            // Build lockfile map for SCA annotations (dependency name -> lockfile path)
+            for (const file of lockfiles) {
+              const deps = parseLockfile(file.filename, file.content);
+              for (const dep of deps) {
+                scaLockfileMap.set(dep.name, file.filename);
+              }
+            }
+            const scaAnnotations = AnnotationBuilder.fromScaFindings(scaResult.findings, scaLockfileMap);
+            allAnnotations.push(...scaAnnotations);
 
             if (commentOnPr && context.payload.pull_request) {
               const scaComment = ScaScanner.buildPrComment(scaResult.findings, scaResult.summary.total);
@@ -192,11 +213,16 @@ async function run(): Promise<void> {
         }
 
         if (codeFiles.length > 0) {
-          const sastFindings = SastScanner.scan(codeFiles);
+          sastFindings = SastScanner.scan(codeFiles);
           core.setOutput("sast-findings", sastFindings.length.toString());
 
           if (sastFindings.length > 0) {
             core.warning(`SAST: Found ${sastFindings.length} code security issue(s)`);
+
+            // Build annotations from SAST findings
+            const sastAnnotations = AnnotationBuilder.fromSastFindings(sastFindings);
+            allAnnotations.push(...sastAnnotations);
+
             if (commentOnPr) {
               const sastComment = SastScanner.buildPrComment(sastFindings);
               if (sastComment) {
@@ -311,14 +337,16 @@ async function run(): Promise<void> {
       core.setOutput("scan-url", `${apiUrl}/scans/${scan.scanId}`);
       core.setOutput("passed", passed.toString());
 
-      // 12. Update status check
+      // 12. Update status check with inline annotations
       if (passed) {
         await statusCheck.createSuccess(
-          `Score: ${result.score}/100 (${result.grade}) — ${result.summary.totalVulnerabilities} vulnerabilities`
+          `Score: ${result.score}/100 (${result.grade}) — ${result.summary.totalVulnerabilities} vulnerabilities`,
+          allAnnotations
         );
       } else {
         await statusCheck.createFailure(
-          `Score: ${result.score}/100 (${result.grade}) — Below threshold ${failThreshold}`
+          `Score: ${result.score}/100 (${result.grade}) — Below threshold ${failThreshold}`,
+          allAnnotations
         );
       }
 
@@ -393,13 +421,17 @@ async function run(): Promise<void> {
       // Fail if secrets were found (critical severity)
       if (secretFindings.length > 0) {
         await statusCheck.createFailure(
-          `Local scan: ${secretFindings.length} secret(s) found in PR files`
+          `Local scan: ${secretFindings.length} secret(s) found in PR files`,
+          allAnnotations
         );
         core.setFailed(
           `${secretFindings.length} secret(s) detected in PR files. Remove them before merging.`
         );
       } else {
-        await statusCheck.createSuccess("Local scan passed (secrets + SCA + SAST)");
+        await statusCheck.createSuccess(
+          "Local scan passed (secrets + SCA + SAST)",
+          allAnnotations
+        );
         core.setOutput("passed", "true");
       }
     }
